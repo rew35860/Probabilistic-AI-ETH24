@@ -8,7 +8,7 @@ from matplotlib import cm
 
 
 # Set `EXTENDED_EVALUATION` to `True` in order to visualize your predictions.
-EXTENDED_EVALUATION = False
+EXTENDED_EVALUATION = True
 EVALUATION_GRID_POINTS = 300  # Number of grid points used in extended evaluation
 
 # Cost function constants
@@ -31,6 +31,7 @@ class Model(object):
         self.rng = np.random.default_rng(seed=0)
 
         # TODO: Add custom initialization for your model here if necessary
+        
 
     def generate_predictions(self, test_coordinates: np.ndarray, test_area_flags: np.ndarray) -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -164,7 +165,6 @@ def execute_extended_evaluation(model: Model, output_dir: str = '/results'):
 
     plt.show()
 
-
 def extract_area_information(train_x: np.ndarray, test_x: np.ndarray) -> typing.Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Extracts the city_area information from the training and test features.
@@ -179,6 +179,10 @@ def extract_area_information(train_x: np.ndarray, test_x: np.ndarray) -> typing.
     test_area_flags = np.zeros((test_x.shape[0],), dtype=bool)
 
     #TODO: Extract the city_area information from the training and test features
+    train_coordinates = train_x[:, :2]
+    train_area_flags = train_x[:, 2].astype(bool)
+    test_coordinates = test_x[:, :2]
+    test_area_flags = test_x[:, 2].astype(bool)
 
     assert train_coordinates.shape[0] == train_area_flags.shape[0] and test_coordinates.shape[0] == test_area_flags.shape[0]
     assert train_coordinates.shape[1] == 2 and test_coordinates.shape[1] == 2
@@ -196,6 +200,11 @@ def main():
     # Extract the city_area information
     train_coordinates, train_area_flags, test_coordinates, test_area_flags = extract_area_information(train_x, test_x)
     
+    # Graphing the data to see how it looks like 
+    plt.figure(figsize=(12, 8)) 
+    plt.scatter(train_coordinates[:,0], train_coordinates[:,1], c=train_area_flags, s=5, alpha=0.7)
+    plt.savefig('graphs/raw_data_1.png')
+
     # Fit the model
     print('Training model')
     model = Model()
