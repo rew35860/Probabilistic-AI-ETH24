@@ -6,6 +6,11 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
+import pickle
+import time
+
+from sklearn.cluster import KMeans
+
 
 # Set `EXTENDED_EVALUATION` to `True` in order to visualize your predictions.
 EXTENDED_EVALUATION = True
@@ -17,11 +22,11 @@ COST_W_NORMAL = 1.0
 
 # block coordinates
 BLOCK_COORDS = [[0.0, 0.0, 0.2, 0.2], [0.2, 0, 0.55, 0.3], [0.55, 0.0, 1.0, 0.3], 
-                [0.0, 0.2, 0.2, 0.65], [0.0, 0.65, 0.2, 1.0], [0.2, 0.3, 0.55, 0.45], 
+                [0.0, 0.2, 0.2, 1.0], [0.2, 0.3, 0.55, 0.45], 
                 [0.55, 0.3, 0.8, 0.45], [0.8, 0.3, 1.0, 0.45],
-                [0.2, 0.45, 0.55, 0.6], [0.2, 0.6, 0.55, 0.8], [0.2, 0.8, 0.4, 1.0], [0.4, 0.8, 0.55, 1.0], 
+                [0.2, 0.45, 0.55, 0.6], [0.2, 0.6, 0.55, 0.8], [0.2, 0.8, 0.55, 1.0], 
                 [0.55, 0.45, 0.75, 0.75], [0.55, 0.75, 0.75, 1.0], # Divide this asymmetrically
-                [0.75, 0.45, 1.0, 0.75], [0.75, 0.75, 1.0, 1.0]
+                [0.75, 0.45, 1.0, 1.0],
                 ]
 
 class Model(object):
@@ -40,7 +45,8 @@ class Model(object):
 
         # TODO: Add custom initialization for your model here if necessary
         self.NUM_GP = len(BLOCK_COORDS)
-        self.kernel = Matern(length_scale=0.01, length_scale_bounds=(1e-10, 1e6), nu=2.5) + RBF(length_scale=10, length_scale_bounds=(1e-10, 1e6)) + WhiteKernel(noise_level_bounds=(1e-10, 1e4)) 
+        self.kernel =  WhiteKernel() + RBF(length_scale=10) + Exponentiation(DotProduct(), 2) + Matern(length_scale=0.01, nu=2.5)
+        self.globalGP = GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=10, normalize_y=True)
         self.GPs = []
         for i in range(self.NUM_GP):
             self.GPs.append(GaussianProcessRegressor(kernel=self.kernel, n_restarts_optimizer=10, normalize_y=True))
@@ -61,26 +67,26 @@ class Model(object):
         gp_mean = np.zeros(test_coordinates.shape[0], dtype=float)
         gp_std = np.zeros(test_coordinates.shape[0], dtype=float)
         predictions = np.zeros(test_coordinates.shape[0], dtype=float)
+        area_gp_mean = np.zeros(test_area_flags.shape[0], dtype=float)
+        area_gp_std = np.zeros(test_area_flags.shape[0], dtype=float)
 
         # TODO: Use the GP posterior to form your predictions here
-        for i in range(self.NUM_GP):
-            # Define the block boundaries
-            block_min = self.block_coordinates[i][0:2]
-            block_max = self.block_coordinates[i][2:]
+        # gp_mean, gp_std = self.GP.predict(test_coordinates, return_std=True)
+        # predictions = gp_mean
 
-            # Find the indices of the points within the block
-            in_block = np.all((test_coordinates >= block_min) & (test_coordinates < block_max), axis=1)
-            block_indices = np.where(in_block)[0]
+        gp_mean, gp_std  = self.globalGP.predict(test_coordinates, return_std=True)
 
-            gp_mean[block_indices], gp_std[block_indices] = self.GPs[i].predict(test_coordinates[block_indices], return_std=True)
+        # Asymmetric cost: 
+        # Adjust the mean for the residential area
+        predictions = gp_mean.copy()
 
-        predictions = gp_mean
         print(gp_std)
         print(predictions)
-
         # Add the residential area cost to prevent underestimation
         test_area_flags = test_area_flags.astype(bool)
-        predictions[test_area_flags] = gp_mean[test_area_flags] + 0.95 * gp_std[test_area_flags]
+        # area_gp_mean, area_gp_std = self.globalGP.predict(test_coordinates[test_area_flags], return_std=True)
+        # predictions[test_area_flags] = area_gp_mean + 1 * area_gp_std
+        predictions[test_area_flags] = gp_mean[test_area_flags] + 1 * gp_std[test_area_flags]
         print(predictions)
 
         return predictions, gp_mean, gp_std
@@ -95,34 +101,25 @@ class Model(object):
 
         # TODO: Fit your model here
 
-        # Divide the training data into blocks and sample from those blocks
-        MAX_SAMPLES_IN_EACH_BLOCK = 2500
-        samples_per_block = []
-        print(f"Max samples in each block: {MAX_SAMPLES_IN_EACH_BLOCK}")
-        for i in range(len(self.block_coordinates)):
-            # Define the block boundaries
-            block_min = self.block_coordinates[i][0:2]
-            block_max = self.block_coordinates[i][2:]
-
-            # Find the indices of the points within the block
-            in_block = np.all((train_coordinates >= block_min) & (train_coordinates < block_max), axis=1)
-
-            # Sample uniformly from the points within the block
-            block_indices = np.where(in_block)[0]
-            print(f'There are {len(block_indices)} samples in {i+1}th block.')
-            if len(block_indices) > MAX_SAMPLES_IN_EACH_BLOCK: #IDEA: again divide into blocks and sample uniformly
-                sample_index = self.rng.choice(block_indices, size=MAX_SAMPLES_IN_EACH_BLOCK)
-                samples_per_block.append([train_coordinates[sample_index], train_targets[sample_index]])
-            else:
-                samples_per_block.append([train_coordinates[block_indices], train_targets[block_indices]])
-
-        # Fit the GP model on the sampled data
-        for i in range(self.NUM_GP):
-            print(f'Fitting {i+1}th GP out of {self.NUM_GP} GPs')
-            self.GPs[i].fit(samples_per_block[i][0], samples_per_block[i][1])
-
+        print("Training GP")
+        coordinates, targets = undersample(train_coordinates, train_targets)
+        self.globalGP.fit(coordinates, targets)
+        print("Kernel: ", self.globalGP.kernel_)
+        
         return
 
+
+def undersample(train_coordinates, train_targets, k=2500):
+    cluster = KMeans(n_clusters=k)
+    cluster.fit(train_coordinates, train_targets)
+
+    targets = np.empty((k,))
+    for i in range(k):
+        idx = np.where(cluster.labels_ == i)
+        targets[i] = np.mean(train_targets[idx])
+    
+    coordinates = cluster.cluster_centers_
+    return coordinates, targets
 
 # You don't have to change this function
 def calculate_cost(ground_truth: np.ndarray, predictions: np.ndarray, area_flags: np.ndarray) -> float:
