@@ -207,6 +207,8 @@ class SWAGInference(object):
 
             # raise NotImplementedError("Update full SWAG statistics")
         
+        self.num_models += 1
+        
 
     def fit_swag_model(self, loader: torch.utils.data.DataLoader) -> None:
         """
@@ -272,7 +274,7 @@ class SWAGInference(object):
                 # ensure no update at the first epoch
                 if (epoch + 1) % self.swag_update_interval == 0:
                     # Increment the number of models seen so far
-                    self.num_models = (epoch + 1) / self.swag_update_interval
+                    # self.num_models = (epoch + 1) / self.swag_update_interval
                     self.update_swag_statistics()
                 # raise NotImplementedError("Periodically update SWAG statistics")
 
@@ -370,8 +372,8 @@ class SWAGInference(object):
             mean_weights = self.swag_diagonal_mean_weights[name]
             sq_mean_weights = self.swag_diagonal_sq_mean_weights[name]
             
-            vars_weights = torch.clamp(sq_mean_weights - mean_weights ** 2, min=1e-30)
-            std_weights = 1/np.sqrt(2) * torch.sqrt(vars_weights)
+            vars_weights = torch.clamp(sq_mean_weights - mean_weights ** 2, min=1e-30) / (self.num_models - 1)
+            std_weights = torch.sqrt(vars_weights)
 
             assert mean_weights.size() == param.size() and std_weights.size() == param.size()
 
@@ -388,7 +390,7 @@ class SWAGInference(object):
                     deviation = torch.stack(deviation_list, dim=-1)
                     z_full = torch.randn(R)
 
-                    scale = (deviation @ z_full) / np.sqrt(2 * self.max_rank_deviation_matrix - 1)
+                    scale = (deviation @ z_full) / math.sqrt(R - 1)
                     sampled_weight += scale
 
             # Modify weight value in-place; directly changing self.network
