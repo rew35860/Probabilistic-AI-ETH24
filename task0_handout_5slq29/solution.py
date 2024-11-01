@@ -43,6 +43,12 @@ def log_posterior_probs(x):
     assert x.ndim == 1
 
     # TODO: enter your code here
+    log_p = np.zeros(3)
+
+    for i, prior in enumerate(PRIOR_PROBS):
+        log_p[i] = sum(HYPOTHESIS_SPACE[i].logpdf(x)) + np.log(prior)
+
+    log_p -= logsumexp(log_p)
 
     assert log_p.shape == (3,)
     return log_p
